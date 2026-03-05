@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}数据仪表盘 - 现场考核管理平台{% endblock %}
+{% block page_title %}数据仪表盘{% endblock %}
+
+{% block content %}
+<!-- 统计卡片 -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="bi bi-geo-alt"></i></div>
+            <div class="stat-value" id="stat-sites">-</div>
+            <div class="stat-label">考核地点</div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="bi bi-journal-check"></i></div>
+            <div class="stat-value" id="stat-inspections">-</div>
+            <div class="stat-label">已完成考核</div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="bi bi-trophy"></i></div>
+            <div class="stat-value" id="stat-avg-score">-</div>
+            <div class="stat-label">平均得分</div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-icon red"><i class="bi bi-exclamation-triangle"></i></div>
+            <div class="stat-value" id="stat-issues">-</div>
+            <div class="stat-label">待整改问题</div>
+        </div>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-8">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-graph-up"></i> 考核得分趋势</div>
+            </div>
+            <div class="chart-container" id="chart-trend"></div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-pie-chart"></i> 各类别合格率</div>
+            </div>
+            <div class="chart-container" id="chart-category"></div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-5">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-bar-chart"></i> 各类别扣分统计</div>
+            </div>
+            <div class="chart-container" id="chart-deduction"></div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-exclamation-circle"></i> 最近不合格项</div>
+            </div>
+            <div id="recent-issues">
+                <div class="empty-state">
+                    <i class="bi bi-check-circle d-block"></i>
+                    <p>暂无不合格记录</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 地点排名 -->
+<div class="row g-4">
+    <div class="col-12">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-sort-numeric-down"></i> 考核地点排名</div>
+                <a href="/inspections" class="btn-outline-custom btn-sm">查看全部考核 <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="table-responsive">
+                <table class="data-table" id="rankings-table">
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>考核地点</th>
+                            <th>平均得分</th>
+                            <th>最近得分</th>
+                            <th>考核次数</th>
+                            <th>趋势</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankings-body">
+                        <tr><td colspan="6" class="text-center text-muted py-4">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadStats();
+    await Promise.all([
+        loadTrendChart(),
+        loadCategoryChart(),
+        loadDeductionChart(),
+        loadRecentIssues(),
+        loadRankings(),
+    ]);
+});
+
+async function loadStats() {
+    try {
+        const data = await apiCall('/api/dashboard/stats');
+        document.getElementById('stat-sites').textContent = data.total_sites;
+        document.getElementById('stat-inspections').textContent = data.completed_inspections;
+        document.getElementById('stat-avg-score').textContent = data.avg_score;
+        document.getElementById('stat-issues').textContent = data.pending_issues;
+    } catch (e) {
+        console.error('Failed to load stats:', e);
+    }
+}
+
+async function loadTrendChart() {
+    try {
+        const data = await apiCall('/api/dashboard/trend?months=6');
+        const chart = echarts.init(document.getElementById('chart-trend'));
+        chart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['平均得分', '考核次数'], top: 0 },
+            grid: { left: '3%', right: '4%', bottom: '3%', top: '40px', containLabel: true },
+            xAxis: { type: 'category', data: data.map(d => d.month), axisLabel: { fontSize: 12 } },
+            yAxis: [
+                { type: 'value', name: '得分', min: 0 },
+                { type: 'value', name: '次数', min: 0 }
+            ],
+            series: [
+                {
+                    name: '平均得分', type: 'line', smooth: true,
+                    data: data.map(d => d.avg_score),
+                    itemStyle: { color: '#4361ee' },
+                    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+                        { offset: 0, color: 'rgba(67,97,238,0.3)' },
+                        { offset: 1, color: 'rgba(67,97,238,0.02)' }
+                    ]}},
+                },
+                {
+                    name: '考核次数', type: 'bar', yAxisIndex: 1,
+                    data: data.map(d => d.count),
+                    itemStyle: { color: '#2ec4b6', borderRadius: [4, 4, 0, 0] },
+                    barWidth: 30,
+                }
+            ]
+        });
+        window.addEventListener('resize', () => chart.resize());
+    } catch (e) {
+        console.error('Failed to load trend chart:', e);
+    }
+}
+
+async function loadCategoryChart() {
+    try {
+        const data = await apiCall('/api/dashboard/category_scores');
+        const chart = echarts.init(document.getElementById('chart-category'));
+        chart.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
+            series: [{
+                type: 'pie', radius: ['45%', '70%'],
+                avoidLabelOverlap: false,
+                itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+                label: { show: true, fontSize: 12 },
+                data: data.map(d => ({ name: d.category, value: d.qualified_rate })),
+                color: ['#4361ee', '#2ec4b6', '#ff9f1c', '#e63946', '#7c3aed', '#06b6d4']
+            }]
+        });
+        window.addEventListener('resize', () => chart.resize());
+    } catch (e) {
+        console.error('Failed to load category chart:', e);
+    }
+}
+
+async function loadDeductionChart() {
+    try {
+        const data = await apiCall('/api/dashboard/category_scores');
+        const chart = echarts.init(document.getElementById('chart-deduction'));
+        chart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: '3%', right: '4%', bottom: '3%', top: '10px', containLabel: true },
+            xAxis: { type: 'value', name: '扣分' },
+            yAxis: { type: 'category', data: data.map(d => d.category).reverse(), axisLabel: { fontSize: 12 } },
+            series: [{
+                type: 'bar',
+                data: data.map(d => d.total_deduction).reverse(),
+                itemStyle: {
+                    borderRadius: [0, 4, 4, 0],
+                    color: function(params) {
+                        const colors = ['#4361ee', '#2ec4b6', '#ff9f1c', '#e63946', '#7c3aed', '#06b6d4'];
+                        return colors[params.dataIndex % colors.length];
+                    }
+                },
+                barWidth: 24,
+            }]
+        });
+        window.addEventListener('resize', () => chart.resize());
+    } catch (e) {
+        console.error('Failed to load deduction chart:', e);
+    }
+}
+
+async function loadRecentIssues() {
+    try {
+        const data = await apiCall('/api/dashboard/recent_issues');
+        const container = document.getElementById('recent-issues');
+        if (data.length === 0) return;
+
+        const rectLabels = {none:'无需整改', pending:'待整改', completed:'已整改'};
+        container.innerHTML = data.map(item => `
+            <div class="issue-item">
+                <div class="issue-title">${item.criteria_name}</div>
+                <div class="issue-meta">
+                    <span class="me-3"><i class="bi bi-geo-alt"></i> ${item.site_name}</span>
+                    <span class="me-3"><i class="bi bi-calendar3"></i> ${item.date}</span>
+                    <span class="me-3 text-danger"><i class="bi bi-dash-circle"></i> 扣${item.deduction}分</span>
+                    <span class="badge-status ${item.rectification_status}">
+                        ${rectLabels[item.rectification_status] || ''}
+                    </span>
+                </div>
+                ${item.issue ? `<div class="mt-1 text-muted small">${item.issue}</div>` : ''}
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to load recent issues:', e);
+    }
+}
+
+async function loadRankings() {
+    try {
+        const data = await apiCall('/api/dashboard/site_rankings');
+        const tbody = document.getElementById('rankings-body');
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">暂无考核数据</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.map((site, idx) => {
+            const cls = getScoreClass(site.avg_score, 200);
+            const trend = site.latest_score >= site.avg_score ? 'up' : 'down';
+            return `<tr>
+                <td><strong>${idx + 1}</strong></td>
+                <td>${site.site_name}</td>
+                <td><span class="score-badge ${cls}">${site.avg_score}</span></td>
+                <td>${site.latest_score}</td>
+                <td>${site.inspection_count}次</td>
+                <td><i class="bi bi-arrow-${trend}-short text-${trend === 'up' ? 'success' : 'danger'}"></i></td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load rankings:', e);
+    }
+}
+</script>
+{% endblock %}

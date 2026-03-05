@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}考核地点管理 - 现场考核管理平台{% endblock %}
+{% block page_title %}考核地点管理{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="panel-header">
+        <div class="panel-title"><i class="bi bi-geo-alt"></i> 考核地点列表</div>
+        <button class="btn-primary-custom" onclick="showSiteModal()">
+            <i class="bi bi-plus-lg"></i> 新增地点
+        </button>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>地点名称</th>
+                    <th>地址</th>
+                    <th>联系人</th>
+                    <th>联系电话</th>
+                    <th>备注</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="sites-body">
+                <tr><td colspan="8" class="text-center text-muted py-4">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="siteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="siteModalTitle">新增考核地点</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="site-id">
+                <div class="mb-3">
+                    <label class="form-label">地点名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="site-name" placeholder="请输入考核地点名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">地址</label>
+                    <input type="text" class="form-control" id="site-address" placeholder="请输入地址">
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">联系人</label>
+                        <input type="text" class="form-control" id="site-contact" placeholder="联系人姓名">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">联系电话</label>
+                        <input type="text" class="form-control" id="site-phone" placeholder="联系电话">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备注说明</label>
+                    <textarea class="form-control" id="site-desc" rows="3" placeholder="备注说明"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn-primary-custom" onclick="saveSite()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let siteModal;
+document.addEventListener('DOMContentLoaded', () => {
+    siteModal = new bootstrap.Modal(document.getElementById('siteModal'));
+    loadSites();
+});
+
+async function loadSites() {
+    try {
+        const sites = await apiCall('/api/sites');
+        const tbody = document.getElementById('sites-body');
+        if (sites.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8">
+                <div class="empty-state"><i class="bi bi-geo-alt d-block"></i><p>暂无考核地点，请点击"新增地点"添加</p></div>
+            </td></tr>`;
+            return;
+        }
+        tbody.innerHTML = sites.map((s, idx) => `<tr>
+            <td>${idx + 1}</td>
+            <td><strong>${s.name}</strong></td>
+            <td>${s.address}</td>
+            <td>${s.contact_person}</td>
+            <td>${s.contact_phone}</td>
+            <td>${s.description}</td>
+            <td>${s.created_at}</td>
+            <td>
+                <button class="btn-sm-action edit me-1" onclick="editSite(${s.id})"><i class="bi bi-pencil"></i> 编辑</button>
+                <button class="btn-sm-action delete" onclick="deleteSite(${s.id}, '${s.name}')"><i class="bi bi-trash"></i> 删除</button>
+            </td>
+        </tr>`).join('');
+    } catch (e) {
+        showToast('加载失败: ' + e.message, 'error');
+    }
+}
+
+function showSiteModal(site = null) {
+    document.getElementById('siteModalTitle').textContent = site ? '编辑考核地点' : '新增考核地点';
+    document.getElementById('site-id').value = site ? site.id : '';
+    document.getElementById('site-name').value = site ? site.name : '';
+    document.getElementById('site-address').value = site ? site.address : '';
+    document.getElementById('site-contact').value = site ? site.contact_person : '';
+    document.getElementById('site-phone').value = site ? site.contact_phone : '';
+    document.getElementById('site-desc').value = site ? site.description : '';
+    siteModal.show();
+}
+
+async function editSite(id) {
+    try {
+        const site = await apiCall(`/api/sites/${id}`);
+        showSiteModal(site);
+    } catch (e) {
+        showToast('获取数据失败', 'error');
+    }
+}
+
+async function saveSite() {
+    const id = document.getElementById('site-id').value;
+    const name = document.getElementById('site-name').value.trim();
+    if (!name) {
+        showToast('请输入地点名称', 'error');
+        return;
+    }
+    const data = {
+        name,
+        address: document.getElementById('site-address').value.trim(),
+        contact_person: document.getElementById('site-contact').value.trim(),
+        contact_phone: document.getElementById('site-phone').value.trim(),
+        description: document.getElementById('site-desc').value.trim(),
+    };
+    try {
+        if (id) {
+            await apiCall(`/api/sites/${id}`, 'PUT', data);
+            showToast('更新成功');
+        } else {
+            await apiCall('/api/sites', 'POST', data);
+            showToast('新增成功');
+        }
+        siteModal.hide();
+        loadSites();
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+async function deleteSite(id, name) {
+    if (!confirm(`确定要删除考核地点「${name}」吗？删除后将无法恢复。`)) return;
+    try {
+        await apiCall(`/api/sites/${id}`, 'DELETE');
+        showToast('删除成功');
+        loadSites();
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+</script>
+{% endblock %}

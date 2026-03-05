@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block title %}考核标准管理 - 现场考核管理平台{% endblock %}
+{% block page_title %}考核标准管理{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 考核类别 -->
+    <div class="col-lg-4">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-folder"></i> 考核类别</div>
+                <button class="btn-primary-custom btn-sm" onclick="showCategoryModal()">
+                    <i class="bi bi-plus-lg"></i> 新增
+                </button>
+            </div>
+            <div id="category-list">
+                <div class="text-center text-muted py-4">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 考核标准 -->
+    <div class="col-lg-8">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-list-check"></i> 考核标准 <span id="criteria-category-name" class="text-muted fw-normal ms-2"></span></div>
+                <button class="btn-primary-custom btn-sm" onclick="showCriteriaModal()" id="btn-add-criteria" style="display:none">
+                    <i class="bi bi-plus-lg"></i> 新增标准
+                </button>
+            </div>
+            <div id="criteria-list">
+                <div class="empty-state">
+                    <i class="bi bi-arrow-left d-block"></i>
+                    <p>请先选择左侧的考核类别</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Category Modal -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="catModalTitle">新增考核类别</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cat-id">
+                <div class="mb-3">
+                    <label class="form-label">类别名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="cat-name" placeholder="如：环境卫生、安全管理">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">描述</label>
+                    <textarea class="form-control" id="cat-desc" rows="2" placeholder="类别描述"></textarea>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">权重</label>
+                        <input type="number" class="form-control" id="cat-weight" value="1.0" step="0.1" min="0.1">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" class="form-control" id="cat-order" value="0" min="0">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn-primary-custom" onclick="saveCategory()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Criteria Modal -->
+<div class="modal fade" id="criteriaModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="critModalTitle">新增考核标准</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="crit-id">
+                <div class="mb-3">
+                    <label class="form-label">考核项目名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="crit-name" placeholder="如：现场地面清洁">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">考核标准描述</label>
+                    <textarea class="form-control" id="crit-desc" rows="2" placeholder="详细描述该考核项目的标准"></textarea>
+                </div>
+                <div class="row">
+                    <div class="col-4 mb-3">
+                        <label class="form-label">满分值</label>
+                        <input type="number" class="form-control" id="crit-max-score" value="10" min="1">
+                    </div>
+                    <div class="col-4 mb-3">
+                        <label class="form-label">排序</label>
+                        <input type="number" class="form-control" id="crit-order" value="0" min="0">
+                    </div>
+                    <div class="col-4 mb-3">
+                        <label class="form-label">状态</label>
+                        <select class="form-select" id="crit-active">
+                            <option value="true">启用</option>
+                            <option value="false">停用</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">扣分规则</label>
+                    <textarea class="form-control" id="crit-rule" rows="3" placeholder="描述扣分规则，如：发现一处扣2分，每次最多扣10分"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn-primary-custom" onclick="saveCriteria()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let categoryModal, criteriaModal;
+let selectedCategoryId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    categoryModal = new bootstrap.Modal(document.getElementById('categoryModal'));
+    criteriaModal = new bootstrap.Modal(document.getElementById('criteriaModal'));
+    loadCategories();
+});
+
+async function loadCategories() {
+    try {
+        const cats = await apiCall('/api/categories');
+        const container = document.getElementById('category-list');
+        if (cats.length === 0) {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-folder d-block"></i><p>暂无类别，请添加</p></div>';
+            return;
+        }
+        container.innerHTML = cats.map(c => `
+            <div class="d-flex align-items-center p-3 rounded-3 mb-2 ${selectedCategoryId === c.id ? 'bg-primary bg-opacity-10 border border-primary' : 'border'}"
+                 style="cursor:pointer" onclick="selectCategory(${c.id})">
+                <div class="flex-grow-1">
+                    <div class="fw-bold">${c.name}</div>
+                    <small class="text-muted">${c.criteria_count}项标准 · 权重${c.weight}</small>
+                </div>
+                <div>
+                    <button class="btn-sm-action edit me-1" onclick="event.stopPropagation(); editCategory(${c.id})"><i class="bi bi-pencil"></i></button>
+                    <button class="btn-sm-action delete" onclick="event.stopPropagation(); deleteCategory(${c.id}, '${c.name}')"><i class="bi bi-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        showToast('加载类别失败', 'error');
+    }
+}
+
+async function selectCategory(catId) {
+    selectedCategoryId = catId;
+    document.getElementById('btn-add-criteria').style.display = 'inline-flex';
+    loadCategories();
+    loadCriteria(catId);
+}
+
+async function loadCriteria(catId) {
+    try {
+        const criteria = await apiCall(`/api/criteria?category_id=${catId}`);
+        const cats = await apiCall('/api/categories');
+        const cat = cats.find(c => c.id === catId);
+        document.getElementById('criteria-category-name').textContent = cat ? `- ${cat.name}` : '';
+
+        const container = document.getElementById('criteria-list');
+        if (criteria.length === 0) {
+            container.innerHTML = '<div class="empty-state"><i class="bi bi-list-check d-block"></i><p>该类别下暂无考核标准</p></div>';
+            return;
+        }
+        container.innerHTML = `<div class="table-responsive"><table class="data-table"><thead><tr>
+            <th>序号</th><th>考核项目</th><th>考核标准</th><th>满分</th><th>扣分规则</th><th>状态</th><th>操作</th>
+        </tr></thead><tbody>` + criteria.map((c, idx) => `<tr>
+            <td>${idx + 1}</td>
+            <td><strong>${c.name}</strong></td>
+            <td class="small">${c.description}</td>
+            <td><span class="score-badge good">${c.max_score}</span></td>
+            <td class="small text-danger">${c.deduction_rule}</td>
+            <td><span class="badge-status ${c.is_active ? 'completed' : 'draft'}">${c.is_active ? '启用' : '停用'}</span></td>
+            <td>
+                <button class="btn-sm-action edit me-1" onclick="editCriteria(${c.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn-sm-action delete" onclick="deleteCriteria(${c.id}, '${c.name}')"><i class="bi bi-trash"></i></button>
+            </td>
+        </tr>`).join('') + '</tbody></table></div>';
+    } catch (e) {
+        showToast('加载标准失败', 'error');
+    }
+}
+
+function showCategoryModal(cat = null) {
+    document.getElementById('catModalTitle').textContent = cat ? '编辑考核类别' : '新增考核类别';
+    document.getElementById('cat-id').value = cat ? cat.id : '';
+    document.getElementById('cat-name').value = cat ? cat.name : '';
+    document.getElementById('cat-desc').value = cat ? cat.description : '';
+    document.getElementById('cat-weight').value = cat ? cat.weight : 1.0;
+    document.getElementById('cat-order').value = cat ? cat.sort_order : 0;
+    categoryModal.show();
+}
+
+async function editCategory(id) {
+    const cats = await apiCall('/api/categories');
+    const cat = cats.find(c => c.id === id);
+    if (cat) showCategoryModal(cat);
+}
+
+async function saveCategory() {
+    const id = document.getElementById('cat-id').value;
+    const name = document.getElementById('cat-name').value.trim();
+    if (!name) { showToast('请输入类别名称', 'error'); return; }
+    const data = {
+        name,
+        description: document.getElementById('cat-desc').value.trim(),
+        weight: parseFloat(document.getElementById('cat-weight').value) || 1.0,
+        sort_order: parseInt(document.getElementById('cat-order').value) || 0,
+    };
+    try {
+        if (id) {
+            await apiCall(`/api/categories/${id}`, 'PUT', data);
+        } else {
+            await apiCall('/api/categories', 'POST', data);
+        }
+        showToast('保存成功');
+        categoryModal.hide();
+        loadCategories();
+    } catch (e) { showToast('保存失败', 'error'); }
+}
+
+async function deleteCategory(id, name) {
+    if (!confirm(`确定删除类别「${name}」及其下所有考核标准吗？`)) return;
+    try {
+        await apiCall(`/api/categories/${id}`, 'DELETE');
+        showToast('删除成功');
+        if (selectedCategoryId === id) {
+            selectedCategoryId = null;
+            document.getElementById('criteria-list').innerHTML = '<div class="empty-state"><i class="bi bi-arrow-left d-block"></i><p>请先选择左侧的考核类别</p></div>';
+            document.getElementById('btn-add-criteria').style.display = 'none';
+        }
+        loadCategories();
+    } catch (e) { showToast('删除失败', 'error'); }
+}
+
+function showCriteriaModal(crit = null) {
+    document.getElementById('critModalTitle').textContent = crit ? '编辑考核标准' : '新增考核标准';
+    document.getElementById('crit-id').value = crit ? crit.id : '';
+    document.getElementById('crit-name').value = crit ? crit.name : '';
+    document.getElementById('crit-desc').value = crit ? crit.description : '';
+    document.getElementById('crit-max-score').value = crit ? crit.max_score : 10;
+    document.getElementById('crit-order').value = crit ? crit.sort_order : 0;
+    document.getElementById('crit-active').value = crit ? String(crit.is_active) : 'true';
+    document.getElementById('crit-rule').value = crit ? crit.deduction_rule : '';
+    criteriaModal.show();
+}
+
+async function editCriteria(id) {
+    const criteria = await apiCall('/api/criteria');
+    const c = criteria.find(x => x.id === id);
+    if (c) showCriteriaModal(c);
+}
+
+async function saveCriteria() {
+    const id = document.getElementById('crit-id').value;
+    const name = document.getElementById('crit-name').value.trim();
+    if (!name) { showToast('请输入项目名称', 'error'); return; }
+    if (!selectedCategoryId && !id) { showToast('请先选择考核类别', 'error'); return; }
+    const data = {
+        category_id: selectedCategoryId,
+        name,
+        description: document.getElementById('crit-desc').value.trim(),
+        max_score: parseFloat(document.getElementById('crit-max-score').value) || 10,
+        sort_order: parseInt(document.getElementById('crit-order').value) || 0,
+        is_active: document.getElementById('crit-active').value === 'true',
+        deduction_rule: document.getElementById('crit-rule').value.trim(),
+    };
+    try {
+        if (id) {
+            await apiCall(`/api/criteria/${id}`, 'PUT', data);
+        } else {
+            await apiCall('/api/criteria', 'POST', data);
+        }
+        showToast('保存成功');
+        criteriaModal.hide();
+        loadCriteria(selectedCategoryId);
+        loadCategories();
+    } catch (e) { showToast('保存失败', 'error'); }
+}
+
+async function deleteCriteria(id, name) {
+    if (!confirm(`确定删除考核标准「${name}」吗？`)) return;
+    try {
+        await apiCall(`/api/criteria/${id}`, 'DELETE');
+        showToast('删除成功');
+        loadCriteria(selectedCategoryId);
+        loadCategories();
+    } catch (e) { showToast('删除失败', 'error'); }
+}
+</script>
+{% endblock %}

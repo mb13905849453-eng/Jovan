@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}考核记录 - 现场考核管理平台{% endblock %}
+{% block page_title %}考核记录管理{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="panel-header">
+        <div class="panel-title"><i class="bi bi-journal-text"></i> 考核记录列表</div>
+        <div class="d-flex gap-2">
+            <a href="/api/export/summary" class="btn-outline-custom btn-sm"><i class="bi bi-download"></i> 导出汇总</a>
+            <a href="/inspections/new" class="btn-primary-custom"><i class="bi bi-plus-lg"></i> 新建考核</a>
+        </div>
+    </div>
+
+    <!-- 筛选 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <select class="form-select" id="filter-site" onchange="loadInspections()">
+                <option value="">全部地点</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" id="filter-status" onchange="loadInspections()">
+                <option value="">全部状态</option>
+                <option value="draft">草稿</option>
+                <option value="completed">已完成</option>
+                <option value="reviewed">已审核</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>考核地点</th>
+                    <th>考核日期</th>
+                    <th>检查人员</th>
+                    <th>总得分</th>
+                    <th>总扣分</th>
+                    <th>检查项数</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="inspections-body">
+                <tr><td colspan="9" class="text-center text-muted py-4">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadSiteFilter();
+    await loadInspections();
+});
+
+async function loadSiteFilter() {
+    try {
+        const sites = await apiCall('/api/sites');
+        const sel = document.getElementById('filter-site');
+        sites.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.name;
+            sel.appendChild(opt);
+        });
+    } catch (e) { console.error(e); }
+}
+
+async function loadInspections() {
+    try {
+        let url = '/api/inspections?';
+        const siteId = document.getElementById('filter-site').value;
+        const status = document.getElementById('filter-status').value;
+        if (siteId) url += `site_id=${siteId}&`;
+        if (status) url += `status=${status}&`;
+
+        const inspections = await apiCall(url);
+        const tbody = document.getElementById('inspections-body');
+        if (inspections.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9">
+                <div class="empty-state"><i class="bi bi-journal-text d-block"></i><p>暂无考核记录</p></div>
+            </td></tr>`;
+            return;
+        }
+        tbody.innerHTML = inspections.map((insp, idx) => {
+            const maxScore = insp.total_score + insp.total_deduction;
+            const cls = getScoreClass(insp.total_score, maxScore);
+            return `<tr>
+                <td>${idx + 1}</td>
+                <td><strong>${insp.site_name}</strong></td>
+                <td>${insp.inspection_date}</td>
+                <td>${insp.inspector}</td>
+                <td><span class="score-badge ${cls}">${insp.total_score}</span></td>
+                <td class="text-danger fw-bold">${insp.total_deduction > 0 ? '-' + insp.total_deduction : '0'}</td>
+                <td>${insp.item_count}项</td>
+                <td><span class="badge-status ${insp.status}">${insp.status_label}</span></td>
+                <td>
+                    <a href="/inspections/${insp.id}" class="btn-sm-action view me-1"><i class="bi bi-eye"></i> 查看</a>
+                    ${insp.status === 'draft' ? `<a href="/inspections/${insp.id}/edit" class="btn-sm-action edit me-1"><i class="bi bi-pencil"></i> 编辑</a>` : ''}
+                    <a href="/api/export/inspection/${insp.id}" class="btn-sm-action edit me-1"><i class="bi bi-download"></i> 导出</a>
+                    <button class="btn-sm-action delete" onclick="deleteInspection(${insp.id})"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        showToast('加载失败', 'error');
+    }
+}
+
+async function deleteInspection(id) {
+    if (!confirm('确定要删除该考核记录吗？删除后将无法恢复。')) return;
+    try {
+        await apiCall(`/api/inspections/${id}`, 'DELETE');
+        showToast('删除成功');
+        loadInspections();
+    } catch (e) { showToast('删除失败', 'error'); }
+}
+</script>
+{% endblock %}
