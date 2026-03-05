@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}考核详情 - 现场考核管理平台{% endblock %}
+{% block page_title %}考核详情{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="panel-header">
+        <div class="panel-title"><i class="bi bi-journal-text"></i> 考核记录详情</div>
+        <div class="d-flex gap-2">
+            <a href="/api/export/inspection/{{ inspection_id }}" class="btn-outline-custom btn-sm">
+                <i class="bi bi-download"></i> 导出Excel
+            </a>
+            <button class="btn-outline-custom btn-sm" onclick="window.print()">
+                <i class="bi bi-printer"></i> 打印
+            </button>
+            <a href="/inspections" class="btn-outline-custom btn-sm"><i class="bi bi-arrow-left"></i> 返回列表</a>
+        </div>
+    </div>
+
+    <!-- 基本信息 -->
+    <div class="row g-3 mb-4" id="detail-info">
+        <div class="col-md-3">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">考核地点</div>
+                <div class="fw-bold" id="detail-site">-</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">考核日期</div>
+                <div class="fw-bold" id="detail-date">-</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">检查人员</div>
+                <div class="fw-bold" id="detail-inspector">-</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">总得分</div>
+                <div class="fw-bold fs-4" id="detail-score" style="color:var(--primary)">-</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">总扣分</div>
+                <div class="fw-bold fs-4 text-danger" id="detail-deduction">-</div>
+            </div>
+        </div>
+        <div class="col-md-1">
+            <div class="border rounded-3 p-3 text-center">
+                <div class="text-muted small mb-1">状态</div>
+                <div id="detail-status">-</div>
+            </div>
+        </div>
+    </div>
+    <div class="mb-4" id="detail-notes-row" style="display:none">
+        <div class="text-muted small mb-1">备注</div>
+        <div class="border rounded-3 p-3" id="detail-notes"></div>
+    </div>
+</div>
+
+<!-- 得分分析 -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-pie-chart"></i> 各类别扣分占比</div>
+            </div>
+            <div class="chart-container" id="chart-detail-pie"></div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card-panel">
+            <div class="panel-header">
+                <div class="panel-title"><i class="bi bi-bar-chart"></i> 各类别得分率</div>
+            </div>
+            <div class="chart-container" id="chart-detail-bar"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 明细表 -->
+<div class="card-panel">
+    <div class="panel-header">
+        <div class="panel-title"><i class="bi bi-table"></i> 考核明细</div>
+    </div>
+    <div id="detail-items">
+        <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const inspectionId = {{ inspection_id }};
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadDetail();
+});
+
+async function loadDetail() {
+    try {
+        const data = await apiCall(`/api/inspections/${inspectionId}`);
+        document.getElementById('detail-site').textContent = data.site_name;
+        document.getElementById('detail-date').textContent = data.inspection_date;
+        document.getElementById('detail-inspector').textContent = data.inspector;
+        document.getElementById('detail-score').textContent = data.total_score;
+        document.getElementById('detail-deduction').textContent = data.total_deduction;
+        document.getElementById('detail-status').innerHTML =
+            `<span class="badge-status ${data.status}">${data.status_label}</span>`;
+
+        if (data.notes) {
+            document.getElementById('detail-notes-row').style.display = 'block';
+            document.getElementById('detail-notes').textContent = data.notes;
+        }
+
+        renderDetailItems(data.items);
+        renderCharts(data.items);
+    } catch (e) {
+        showToast('加载失败', 'error');
+    }
+}
+
+function renderDetailItems(items) {
+    const container = document.getElementById('detail-items');
+    if (!items || items.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>暂无明细数据</p></div>';
+        return;
+    }
+
+    const grouped = {};
+    items.forEach(item => {
+        const cat = item.category_name || '其他';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(item);
+    });
+
+    let html = '';
+    for (const [cat, catItems] of Object.entries(grouped)) {
+        const catMax = catItems.reduce((s, i) => s + i.max_score, 0);
+        const catDeduction = catItems.reduce((s, i) => s + i.deduction, 0);
+        const catScore = catMax - catDeduction;
+        html += `<div class="category-group">
+            <div class="category-group-header">
+                <i class="bi bi-folder"></i> ${cat}
+                <span class="ms-auto small">得分: <strong>${catScore}</strong>/${catMax} · 扣分: <strong class="text-danger">${catDeduction}</strong></span>
+            </div>
+            <div class="table-responsive">
+            <table class="data-table"><thead><tr>
+                <th>序号</th><th>考核项目</th><th>考核标准</th><th>扣分规则</th><th>满分</th><th>扣分</th><th>得分</th><th>问题描述</th><th>整改状态</th>
+            </tr></thead><tbody>`;
+
+        catItems.forEach((item, idx) => {
+            const rowClass = item.deduction > 0 ? 'style="background:#fff8f8"' : '';
+            html += `<tr ${rowClass}>
+                <td>${idx + 1}</td>
+                <td><strong>${item.criteria_name}</strong></td>
+                <td class="small text-muted">${item.criteria_name}</td>
+                <td class="small text-muted">-</td>
+                <td>${item.max_score}</td>
+                <td class="text-danger fw-bold">${item.deduction > 0 ? '-' + item.deduction : '0'}</td>
+                <td><span class="score-badge ${getScoreClass(item.score, item.max_score)}">${item.score}</span></td>
+                <td>${item.issue_description || '<span class="text-muted">-</span>'}</td>
+                <td><span class="badge-status ${item.rectification_status}">${item.rectification_label}</span></td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></div>';
+    }
+    container.innerHTML = html;
+}
+
+function renderCharts(items) {
+    const grouped = {};
+    items.forEach(item => {
+        const cat = item.category_name || '其他';
+        if (!grouped[cat]) grouped[cat] = { max: 0, deduction: 0 };
+        grouped[cat].max += item.max_score;
+        grouped[cat].deduction += item.deduction;
+    });
+
+    const categories = Object.keys(grouped);
+    const deductions = categories.map(c => grouped[c].deduction);
+    const rates = categories.map(c => {
+        const g = grouped[c];
+        return g.max > 0 ? Math.round((g.max - g.deduction) / g.max * 100) : 100;
+    });
+
+    // Pie
+    const pieChart = echarts.init(document.getElementById('chart-detail-pie'));
+    pieChart.setOption({
+        tooltip: { trigger: 'item', formatter: '{b}: {c}分 ({d}%)' },
+        series: [{
+            type: 'pie', radius: ['40%', '65%'],
+            itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+            label: { show: true, fontSize: 12 },
+            data: categories.map((c, i) => ({ name: c, value: deductions[i] })),
+            color: ['#4361ee', '#2ec4b6', '#ff9f1c', '#e63946', '#7c3aed', '#06b6d4'],
+            emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' } },
+        }]
+    });
+
+    // Bar
+    const barChart = echarts.init(document.getElementById('chart-detail-bar'));
+    barChart.setOption({
+        tooltip: { trigger: 'axis', formatter: '{b}: {c}%' },
+        grid: { left: '3%', right: '6%', bottom: '3%', top: '10px', containLabel: true },
+        xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+        yAxis: { type: 'category', data: categories.reverse(), axisLabel: { fontSize: 12 } },
+        series: [{
+            type: 'bar', data: rates.reverse(),
+            barWidth: 20,
+            itemStyle: {
+                borderRadius: [0, 4, 4, 0],
+                color: function(params) {
+                    const v = params.value;
+                    if (v >= 90) return '#16a34a';
+                    if (v >= 75) return '#4361ee';
+                    if (v >= 60) return '#f59e0b';
+                    return '#e63946';
+                }
+            },
+            label: { show: true, position: 'right', formatter: '{c}%', fontSize: 12 }
+        }]
+    });
+
+    window.addEventListener('resize', () => { pieChart.resize(); barChart.resize(); });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑' if inspection_id is defined else '新建' }}考核 - 现场考核管理平台{% endblock %}
+{% block page_title %}{{ '编辑考核记录' if inspection_id is defined else '新建考核记录' }}{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+    <div class="panel-header">
+        <div class="panel-title">
+            <i class="bi bi-journal-plus"></i>
+            {{ '编辑考核记录' if inspection_id is defined else '新建考核记录' }}
+        </div>
+        <a href="/inspections" class="btn-outline-custom btn-sm"><i class="bi bi-arrow-left"></i> 返回列表</a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <label class="form-label">考核地点 <span class="text-danger">*</span></label>
+            <select class="form-select" id="form-site">
+                <option value="">请选择考核地点</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">检查人员 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="form-inspector" placeholder="检查人员姓名">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">考核日期 <span class="text-danger">*</span></label>
+            <input type="date" class="form-control" id="form-date">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button class="btn-primary-custom w-100" onclick="saveInspection()" id="btn-save">
+                <i class="bi bi-check-lg"></i> 保存
+            </button>
+        </div>
+    </div>
+    <div class="mb-4">
+        <label class="form-label">备注</label>
+        <textarea class="form-control" id="form-notes" rows="2" placeholder="本次考核的备注说明"></textarea>
+    </div>
+</div>
+
+{% if inspection_id is defined %}
+<!-- 评分区域 -->
+<div class="card-panel" id="scoring-area">
+    <div class="panel-header">
+        <div class="panel-title"><i class="bi bi-pencil-square"></i> 考核评分</div>
+        <div class="d-flex align-items-center gap-3">
+            <div class="score-display" style="padding:0">
+                <span class="fs-5 fw-bold">总得分：</span>
+                <span class="fs-4 fw-bold text-primary" id="display-total-score">-</span>
+                <span class="text-muted mx-2">|</span>
+                <span class="fs-5 fw-bold">总扣分：</span>
+                <span class="fs-4 fw-bold text-danger" id="display-total-deduction">-</span>
+            </div>
+            <button class="btn-primary-custom btn-sm" onclick="batchSave()"><i class="bi bi-save"></i> 批量保存</button>
+            <select class="form-select form-select-sm" style="width:130px" id="form-status" onchange="updateStatus()">
+                <option value="draft">草稿</option>
+                <option value="completed">已完成</option>
+                <option value="reviewed">已审核</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="inspection-items">
+        <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const inspectionId = {{ inspection_id if inspection_id is defined else 'null' }};
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('form-date').value = today;
+
+    const sites = await apiCall('/api/sites');
+    const sel = document.getElementById('form-site');
+    sites.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        sel.appendChild(opt);
+    });
+
+    if (inspectionId) {
+        await loadInspection();
+    }
+});
+
+async function loadInspection() {
+    try {
+        const data = await apiCall(`/api/inspections/${inspectionId}`);
+        document.getElementById('form-site').value = data.site_id;
+        document.getElementById('form-inspector').value = data.inspector;
+        document.getElementById('form-date').value = data.inspection_date;
+        document.getElementById('form-notes').value = data.notes;
+        document.getElementById('form-status').value = data.status;
+        document.getElementById('display-total-score').textContent = data.total_score;
+        document.getElementById('display-total-deduction').textContent = data.total_deduction;
+
+        renderItems(data.items);
+    } catch (e) {
+        showToast('加载考核记录失败', 'error');
+    }
+}
+
+function renderItems(items) {
+    const container = document.getElementById('inspection-items');
+    if (!items || items.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>暂无考核项目</p></div>';
+        return;
+    }
+
+    const grouped = {};
+    items.forEach(item => {
+        const cat = item.category_name || '其他';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(item);
+    });
+
+    let html = '';
+    for (const [cat, catItems] of Object.entries(grouped)) {
+        const catDeduction = catItems.reduce((s, i) => s + i.deduction, 0);
+        html += `<div class="category-group">
+            <div class="category-group-header">
+                <i class="bi bi-folder"></i> ${cat}
+                <span class="ms-auto small">小计扣分: <strong class="text-danger">${catDeduction}</strong></span>
+            </div>
+            <div class="table-responsive">
+            <table class="data-table"><thead><tr>
+                <th style="width:30px">序号</th>
+                <th>考核项目</th>
+                <th>满分</th>
+                <th style="width:100px">扣分</th>
+                <th>得分</th>
+                <th>问题描述</th>
+                <th>整改状态</th>
+            </tr></thead><tbody>`;
+
+        catItems.forEach((item, idx) => {
+            html += `<tr data-item-id="${item.id}">
+                <td>${idx + 1}</td>
+                <td>
+                    <div class="fw-bold small">${item.criteria_name}</div>
+                </td>
+                <td><span class="score-badge good">${item.max_score}</span></td>
+                <td>
+                    <input type="number" class="deduction-input ${item.deduction > 0 ? 'has-deduction' : ''}"
+                        value="${item.deduction}" min="0" max="${item.max_score}" step="0.5"
+                        data-item-id="${item.id}" data-max="${item.max_score}"
+                        onchange="onDeductionChange(this)">
+                </td>
+                <td><span class="item-score" id="score-${item.id}">${item.score}</span></td>
+                <td>
+                    <input type="text" class="form-control form-control-sm"
+                        value="${item.issue_description}" placeholder="如有问题请描述"
+                        data-item-id="${item.id}" data-field="issue">
+                </td>
+                <td>
+                    <select class="form-select form-select-sm" data-item-id="${item.id}" data-field="rectification">
+                        <option value="none" ${item.rectification_status === 'none' ? 'selected' : ''}>无需整改</option>
+                        <option value="pending" ${item.rectification_status === 'pending' ? 'selected' : ''}>待整改</option>
+                        <option value="completed" ${item.rectification_status === 'completed' ? 'selected' : ''}>已整改</option>
+                    </select>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></div>';
+    }
+    container.innerHTML = html;
+}
+
+function onDeductionChange(input) {
+    const max = parseFloat(input.dataset.max);
+    let val = parseFloat(input.value) || 0;
+    if (val < 0) val = 0;
+    if (val > max) val = max;
+    input.value = val;
+    input.classList.toggle('has-deduction', val > 0);
+
+    const itemId = input.dataset.itemId;
+    const scoreEl = document.getElementById(`score-${itemId}`);
+    if (scoreEl) scoreEl.textContent = max - val;
+
+    recalcTotals();
+}
+
+function recalcTotals() {
+    const inputs = document.querySelectorAll('.deduction-input');
+    let totalDeduction = 0;
+    let totalMax = 0;
+    inputs.forEach(inp => {
+        totalDeduction += parseFloat(inp.value) || 0;
+        totalMax += parseFloat(inp.dataset.max) || 0;
+    });
+    document.getElementById('display-total-score').textContent = totalMax - totalDeduction;
+    document.getElementById('display-total-deduction').textContent = totalDeduction;
+}
+
+async function saveInspection() {
+    const siteId = document.getElementById('form-site').value;
+    const inspector = document.getElementById('form-inspector').value.trim();
+    const inspDate = document.getElementById('form-date').value;
+    const notes = document.getElementById('form-notes').value.trim();
+
+    if (!siteId) { showToast('请选择考核地点', 'error'); return; }
+    if (!inspector) { showToast('请输入检查人员', 'error'); return; }
+    if (!inspDate) { showToast('请选择考核日期', 'error'); return; }
+
+    const data = { site_id: parseInt(siteId), inspector, inspection_date: inspDate, notes };
+
+    try {
+        if (inspectionId) {
+            await apiCall(`/api/inspections/${inspectionId}`, 'PUT', data);
+            showToast('保存成功');
+        } else {
+            const result = await apiCall('/api/inspections', 'POST', data);
+            showToast('创建成功，正在跳转...');
+            setTimeout(() => { window.location.href = `/inspections/${result.id}/edit`; }, 800);
+        }
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+async function batchSave() {
+    const items = [];
+    document.querySelectorAll('.deduction-input').forEach(inp => {
+        const itemId = parseInt(inp.dataset.itemId);
+        const row = inp.closest('tr');
+        const issueInput = row.querySelector('[data-field="issue"]');
+        const rectSelect = row.querySelector('[data-field="rectification"]');
+        items.push({
+            id: itemId,
+            deduction: parseFloat(inp.value) || 0,
+            issue_description: issueInput ? issueInput.value : '',
+            rectification_status: rectSelect ? rectSelect.value : 'none',
+        });
+    });
+
+    try {
+        await apiCall('/api/inspection-items/batch', 'PUT', { items });
+        showToast('所有评分已保存');
+        loadInspection();
+    } catch (e) {
+        showToast('保存失败', 'error');
+    }
+}
+
+async function updateStatus() {
+    if (!inspectionId) return;
+    const status = document.getElementById('form-status').value;
+    try {
+        await apiCall(`/api/inspections/${inspectionId}`, 'PUT', { status });
+        showToast('状态已更新');
+    } catch (e) { showToast('更新失败', 'error'); }
+}
+</script>
+{% endblock %}
